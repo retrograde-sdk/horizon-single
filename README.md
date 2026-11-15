@@ -6,7 +6,7 @@ game's Web Workers need.
 
 Open the launcher **from jsDelivr**:
 
-<https://cdn.jsdelivr.net/gh/retrograde-sdk/horizon-single@main/launch.svg>
+<https://cdn.jsdelivr.net/gh/retrograde-sdk/horizon-single@298988611/launch.svg>
 
 The game is not in this repository. It is shared from Google Drive as
 anyone-with-link, and the API key in `launch.svg` is restricted to the
@@ -33,7 +33,10 @@ a CORS-enabled copy.
 Rebuilding: `python3 web/package.py single` in the Horizon tree, upload the
 result to Drive as anyone-with-link, then update `DRIVE_ID` in `launch.svg` and
 `BUILD` in `horizon-launch-sw.js` (both carry the build id, so a cached worker is
-replaced rather than reused).
+replaced rather than reused), commit, and point the link at the new commit.
+
+Pin the link to a commit, not `@main`: jsDelivr caches a branch's resolution for
+hours, while a commit's files are immutable and serve immediately.
 
 ## Credits
 
