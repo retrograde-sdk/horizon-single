@@ -170,18 +170,24 @@ function bytes(n) {
   return (n >= 10 || i === 0 ? n.toFixed(0) : n.toFixed(1)) + " " + units[i];
 }
 
+// A part's URL carries the build id: a platform cache holding an older build's
+// bytes then cannot be mixed into this one.
+function partUrl(i) {
+  return PARTS.prefix + String(i).padStart(2, "0") + PARTS.suffix + "?b=" + encodeURIComponent(SW_BUILD);
+}
+
 // The game's parts, published beside this page. The manifest is optional: without
 // one the built-in count and a HEAD per part still give the right total.
 async function parts() {
   var manifest = null;
   try {
-    var got = await fetch(PARTS_MANIFEST, { cache: "no-store" });
+    var got = await fetch(PARTS_MANIFEST + "?b=" + encodeURIComponent(SW_BUILD), { cache: "no-store" });
     if (got.ok) manifest = await got.json();
   } catch (e) { /* published without a manifest */ }
   if (!manifest) {
     var count = PARTS.count, sizes = [], total = 0;
     for (var i = 0; i < count; i++) {
-      var url = PARTS.prefix + String(i).padStart(2, "0") + PARTS.suffix;
+      var url = partUrl(i);
       var head = await fetch(url, { method: "HEAD", cache: "no-store" }).catch(function () { return null; });
       if (!head || !head.ok) {
         throw new Error("Part " + i + " of the game is missing from this site. " +
@@ -383,6 +389,10 @@ async function install() {
 
     say(total ? "Downloading " + bytes(total) : "Downloading the game");
     note(plan ? location.origin + "/" + PARTS.prefix + "*" + PARTS.suffix : SOURCE);
+    if (plan && plan.build && plan.build !== SW_BUILD) {
+      warn("This site is serving build " + plan.build + " while the launcher expects " + SW_BUILD +
+           ". Reload in a minute; the pieces of the new build are still reaching the cache.");
+    }
 
     // One part at a time, each with its own retries and Range resume: a part is
     // the unit Pages serves, and restarting only the part that failed keeps a
@@ -456,7 +466,7 @@ async function install() {
 
     if (plan) {
       for (var i = 0; i < plan.parts.length; i++) {
-        var url = PARTS.prefix + String(i).padStart(2, "0") + PARTS.suffix;
+        var url = partUrl(i);
         var want = plan.parts[i];
         var partStart = have, partChunks = chunks, partOffset = offset;
         var partBuffer = buffer;
