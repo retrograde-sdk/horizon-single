@@ -1,27 +1,40 @@
 # Horizon single-file launcher
 
-`launch.svg` and `horizon-launch-sw.js` serve the single-file build from Google
-Drive through a service worker, adding the COOP/COEP headers the game's Web
-Workers need.
+`launch.svg` serves the single-file build of Horizon from this site, with the
+COOP/COEP headers the game's Web Workers need (via `horizon-launch-sw.js`).
 
-The 228,124,049-byte `horizon.html` is not in this repository. It is shared from
-Google Drive as anyone-with-link:
+Open the launcher:
 
-- file id: `1o_7XgQ39hX1HHayNF9pLmzn0bbPqRWov`
-- build: `b29433c2c907` (first 12 hex digits of the file's SHA-256)
+<https://retrograde-sdk.github.io/horizon-single/launch.svg>
 
-Open the launcher from jsDelivr:
+It downloads the game once, keeps it in this origin's IndexedDB, and serves it
+from a service worker as `__horizon.html`. Later visits go straight to LAUNCH.
 
-<https://cdn.jsdelivr.net/gh/retrograde-sdk/horizon-single@main/launch.svg>
+## The game's parts
 
-The Google API key in `launch.svg` is restricted to the jsDelivr referrer, so
-the launcher must be opened from `cdn.jsdelivr.net`, not copied to another
-host. The worker reads the downloaded bytes from IndexedDB and serves
-`__horizon.html` from the same origin with `Cross-Origin-Opener-Policy:
-same-origin` and `Cross-Origin-Embedder-Policy: require-corp`.
+GitHub Pages caps a file at 100 MB, and the single file is ~339 MB, so it is
+published in four parts under `pkg/` (`horizon-part00.bin` … `horizon-part03.bin`)
+with sizes and SHA-256 digests in `pkg/parts.json`. The launcher reads the
+manifest, downloads each part with the retries and Range resume it used to
+apply to one file, and stores the bytes concatenated: the game it serves is
+byte-identical to the build these parts were cut from.
 
-`launch.svg?src=<url>` can point at another copy of the HTML for testing; that
-copy must send CORS headers and allow range requests.
+- build: `8c6cef116639` (first 12 hex digits of the file's SHA-256)
+- size: 355,343,333 bytes
+- parts: 4 × 90,000,000 + 85,343,333
+
+Rebuilding: `python3 web/package.py single` in the Horizon tree, then re-cut the
+parts above and rewrite `pkg/parts.json` (the sha256 of each part and the build
+id of the whole file). `horizon-launch-sw.js`'s `BUILD` and `launch.svg`'s
+`SW_BUILD` must both carry the new build id, or browsers keep serving the
+cached worker.
+
+## Other copies
+
+`launch.svg?src=<url>` points at a single-file copy somewhere else; that copy
+must send CORS headers and allow range requests. The earlier Google Drive copy
+is still readable through the jsDelivr route, whose API key is restricted to
+that referrer.
 
 ## Credits
 

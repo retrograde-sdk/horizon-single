@@ -1,0 +1,28 @@
+{
+  "name": "horizon.html",
+  "size": 355343333,
+  "build": "8c6cef116639",
+  "built": "2026-11-15",
+  "parts": [
+    {
+      "name": "horizon-part00.bin",
+      "size": 90000000,
+      "sha256": "5a1f2b2fc3c282fecaa754a5e88f9d01459a823d008c3a88b059d59e86572a66"
+    },
+    {
+      "name": "horizon-part01.bin",
+      "size": 90000000,
+      "sha256": "d6192737a5efc5184b055734df29d55f4aad685471ac20ba703da502e1b66b13"
+    },
+    {
+      "name": "horizon-part02.bin",
+      "size": 90000000,
+      "sha256": "adadbb9a067b0fff885a5f48550d0ac0c3a9ad54e4e4176cedac70c3f974d1f3"
+    },
+    {
+      "name": "horizon-part03.bin",
+      "size": 85343333,
+      "sha256": "0e21c880ef3d86380527cbe483d423e03606606b39f40c01b3ff857cd9b060bd"
+    }
+  ]
+}
