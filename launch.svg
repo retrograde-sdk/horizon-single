@@ -89,15 +89,21 @@
 // worker serve it with the headers that enable the game's threads.
 var Q = new URLSearchParams(location.search);
 var GAME = "horizon.html";
-// The game is published beside this page as parts under Pages' 100 MB file cap,
-// so it comes from this origin: no key, no CORS, nothing to go stale. ?src= still
-// points at a single-file copy elsewhere, which must then send CORS headers.
-var PARTS = { count: 4, prefix: "pkg/horizon-part", suffix: ".bin" };
-var DRIVE_ID = "1o_7XgQ39hX1HHayNF9pLmzn0bbPqRWov";
-var PARTS_MANIFEST = "pkg/parts.json";
-var SOURCE = Q.get("src") ? new URL(Q.get("src"), location.href).href : null;
+// The game comes from Google Drive through an API key restricted to the
+// cdn.jsdelivr.net referrer, so this page is meant to be opened from jsDelivr.
+// ?src= points at another copy, which then has to send CORS headers and allow
+// range requests.
+var DRIVE_ID = "1j18Zu67rB9h-VXdWtGym7yBFswT_tV7S";
+var DRIVE_KEY = "AIzaSyC5HrSEXwPdoHF3jCvp6gUwzCCyjc6Mimo";
+var DRIVE_URL = "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(DRIVE_ID) + "?alt=media&key=" + encodeURIComponent(DRIVE_KEY);
+var SOURCE = Q.get("src") ? new URL(Q.get("src"), location.href).href : DRIVE_URL;
 var SW_URL = "horizon-launch-sw.js";
 var SW_BUILD = "8c6cef116639";
+// The key is restricted to this referrer, so any other host is refused. Say so
+// and send the player to the copy that works, instead of failing at 403.
+var CANONICAL = "https://cdn.jsdelivr.net/gh/retrograde-sdk/horizon-single@main/launch.svg";
+var KEY_HOST = "cdn.jsdelivr.net";
+var wrongHost = !Q.get("src") && location.hostname !== KEY_HOST;
 var DB_NAME = "horizon-launcher";
 var DB_VERSION = 1;
 var CHUNK = 4 << 20;
@@ -168,44 +174,6 @@ function bytes(n) {
   var units = ["B", "KB", "MB", "GB", "TB"], i = 0;
   while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
   return (n >= 10 || i === 0 ? n.toFixed(0) : n.toFixed(1)) + " " + units[i];
-}
-
-// A part's URL carries the build id: a platform cache holding an older build's
-// bytes then cannot be mixed into this one.
-function partUrl(i) {
-  return PARTS.prefix + String(i).padStart(2, "0") + PARTS.suffix + "?b=" + encodeURIComponent(SW_BUILD);
-}
-
-// The game's parts, published beside this page. The manifest is optional: without
-// one the built-in count and a HEAD per part still give the right total.
-async function parts() {
-  var manifest = null;
-  try {
-    var got = await fetch(PARTS_MANIFEST + "?b=" + encodeURIComponent(SW_BUILD), { cache: "no-store" });
-    if (got.ok) manifest = await got.json();
-  } catch (e) { /* published without a manifest */ }
-  if (!manifest) {
-    var count = PARTS.count, sizes = [], total = 0;
-    for (var i = 0; i < count; i++) {
-      var url = partUrl(i);
-      var head = await fetch(url, { method: "HEAD", cache: "no-store" }).catch(function () { return null; });
-      if (!head || !head.ok) {
-        throw new Error("Part " + i + " of the game is missing from this site. " +
-                        "Publish the files under " + PARTS.prefix + "*.bin, or open launch.svg?src=...");
-      }
-      var size = Number(head.headers.get("content-length") || 0);
-      sizes.push(size);
-      total += size;
-    }
-    return { parts: sizes, total: total, hashes: null };
-  }
-  var partsList = manifest.parts || [];
-  return {
-    parts: partsList.map(function (part) { return Number(part.size) || 0; }),
-    total: Number(manifest.size) || 0,
-    hashes: partsList.map(function (part) { return part.sha256 || ""; }),
-    build: manifest.build || "",
-  };
 }
 
 // ---- the vault, the same stores launch-sw.js reads --------------------------------
@@ -339,16 +307,12 @@ async function install() {
     var registration = await ensureWorker();
     diag("worker " + SW_BUILD + " - " + (registration.active ? "active" : "pending") + " - " + location.origin);
 
-    var plan = SOURCE ? null : await parts();
     var total = 0;
-    if (plan) {
-      total = plan.total;
-      diag("parts " + plan.parts.length + " - " + bytes(total) + " - " + location.origin);
-    } else try {
+    try {
       var head = await fetch(SOURCE, { method: "HEAD", cache: "no-store" });
       if (head.headers.get("content-length")) total = Number(head.headers.get("content-length"));
     } catch (e) { /* a host without HEAD still downloads: progress stays in bytes */ }
-    if (!total && !plan) {
+    if (!total) {
       try {
         var probe = await fetch(SOURCE, { cache: "no-store" });
         if (!probe.ok) throw new Error(String(probe.status));
@@ -388,97 +352,79 @@ async function install() {
     }
 
     say(total ? "Downloading " + bytes(total) : "Downloading the game");
-    note(plan ? location.origin + "/" + PARTS.prefix + "*" + PARTS.suffix : SOURCE);
-    if (plan && plan.build && plan.build !== SW_BUILD) {
-      warn("This site is serving build " + plan.build + " while the launcher expects " + SW_BUILD +
-           ". Reload in a minute; the pieces of the new build are still reaching the cache.");
-    }
+    note(SOURCE);
 
-    // One part at a time, each with its own retries and Range resume: a part is
-    // the unit Pages serves, and restarting only the part that failed keeps a
-    // 340 MB download from starting over. The first 200 bytes still have to be
-    // HTML, checked as they arrive.
-    async function readInto(url, from) {
-      var attempt = 0;
-      for (;;) {
-        var response;
-        try {
-          response = await fetch(url, {
-            headers: from ? { Range: "bytes=" + from + "-" } : {},
-            cache: "no-store",
-          });
-        } catch (e) {
-          attempt += 1;
-          if (attempt > 4) throw new Error("The download stopped (" + e.message + "). Check that " + url + " is reachable.");
-          say("Connection lost, retrying...");
-          await sleep(700 * attempt);
-          continue;
+    var attempts = 0;
+    for (;;) {
+      var response;
+      try {
+        response = await fetch(SOURCE, {
+          headers: have ? { Range: "bytes=" + have + "-" } : {},
+          cache: "no-store",
+        });
+      } catch (e) {
+        attempts += 1;
+        if (attempts > 4) throw new Error("The download stopped (" + e.message + "). Check that " + SOURCE + " is reachable.");
+        say("Connection lost, retrying...");
+        await sleep(700 * attempts);
+        continue;
+      }
+      if (!response.ok) {
+        if (response.status === 404) throw new Error("horizon.html was not found at the download link. Open launch.svg?src=... to point at another copy.");
+        throw new Error(SOURCE + " answered " + response.status + " " + response.statusText + ".");
+      }
+      if (have && response.status !== 206) {
+        await wipe();
+        have = 0;
+        chunks = 0;
+        offset = 0;
+        buffer = new Uint8Array(CHUNK);
+      }
+      var reader = response.body && response.body.getReader();
+      if (!reader) {
+        var all = new Uint8Array(await response.arrayBuffer());
+        if (headText.length < 200) headText += new TextDecoder().decode(all.slice(0, 200 - headText.length));
+        var at = 0;
+        while (at < all.length) {
+          var take = Math.min(CHUNK - offset, all.length - at);
+          buffer.set(all.subarray(at, at + take), offset);
+          offset += take;
+          at += take;
+          have += take;
+          if (offset === CHUNK) await flush();
         }
-        if (!response.ok) throw new Error(url + " answered " + response.status + " " + response.statusText + ".");
-        if (from && response.status !== 206) {
-          // The host ignored the range: start this part over.
-          from = 0;
-          have = partStart;
-          chunks = partChunks;
-          offset = partOffset;
-          buffer = partBuffer.slice();
-        }
-        var reader = response.body && response.body.getReader();
-        if (!reader) {
-          var all = new Uint8Array(await response.arrayBuffer());
-          if (headText.length < 200) headText += new TextDecoder().decode(all.slice(0, 200 - headText.length));
-          var at = 0;
-          while (at < all.length) {
-            var take = Math.min(CHUNK - offset, all.length - at);
-            buffer.set(all.subarray(at, at + take), offset);
-            offset += take;
-            at += take;
-            have += take;
+      } else {
+        for (;;) {
+          var step = await reader.read();
+          if (step.done) break;
+          var value = step.value;
+          if (headText.length < 200) headText += new TextDecoder().decode(value.slice(0, 200 - headText.length));
+          var pos = 0;
+          while (pos < value.length) {
+            var amount = Math.min(CHUNK - offset, value.length - pos);
+            buffer.set(value.subarray(pos, pos + amount), offset);
+            offset += amount;
+            pos += amount;
+            have += amount;
             if (offset === CHUNK) await flush();
           }
-        } else {
-          for (;;) {
-            var step = await reader.read();
-            if (step.done) break;
-            var value = step.value;
-            if (headText.length < 200) headText += new TextDecoder().decode(value.slice(0, 200 - headText.length));
-            var pos = 0;
-            while (pos < value.length) {
-              var amount = Math.min(CHUNK - offset, value.length - pos);
-              buffer.set(value.subarray(pos, pos + amount), offset);
-              offset += amount;
-              pos += amount;
-              have += amount;
-              if (offset === CHUNK) await flush();
-            }
-            var now = Date.now();
-            if (now - lastTick > 120) {
-              lastTick = now;
-              var rate = have / Math.max(1, now - started) * 1000;
-              pct(total ? have / total : 0, total ? Math.round(have / total * 100) + "%" : bytes(have));
-              note(bytes(have) + (total ? " of " + bytes(total) : "") + "  -  " + bytes(rate) + "/s");
-            }
+          var now = Date.now();
+          if (now - lastTick > 120) {
+            lastTick = now;
+            var rate = have / Math.max(1, now - started) * 1000;
+            pct(total ? have / total : 0, total ? Math.round(have / total * 100) + "%" : bytes(have));
+            note(bytes(have) + (total ? " of " + bytes(total) : "") + "  -  " + bytes(rate) + "/s");
           }
         }
-        return;
       }
-    }
-
-    if (plan) {
-      for (var i = 0; i < plan.parts.length; i++) {
-        var url = partUrl(i);
-        var want = plan.parts[i];
-        var partStart = have, partChunks = chunks, partOffset = offset;
-        var partBuffer = buffer;
-        say("Downloading part " + (i + 1) + " of " + plan.parts.length);
-        await readInto(url, 0);
-        if (want && have - partStart !== want) {
-          throw new Error("Part " + (i + 1) + " is " + bytes(have - partStart) + ", expected " + bytes(want) +
-                          ". The site's copy of the game is incomplete: publish it again.");
-        }
+      if (total && have < total) {
+        attempts += 1;
+        if (attempts > 5) throw new Error("The download stalled at " + bytes(have) + " of " + bytes(total) + ".");
+        say("Reconnecting at " + bytes(have) + "...");
+        await sleep(600 * attempts);
+        continue;
       }
-    } else {
-      await readInto(SOURCE, 0);
+      break;
     }
     await flush();
     var signature = headText.replace(/^\uFEFF/, "").replace(/^\s+/, "").toLowerCase();
@@ -588,6 +534,14 @@ async function refresh() {
     note("downloads " + SOURCE);
     pct(0, "0%");
   }
+  if (wrongHost) {
+    el("golabel").textContent = "OPEN ON JSDELIVR";
+    say("Open this page from jsDelivr");
+    note(CANONICAL);
+    warn("The download's API key only answers " + KEY_HOST + ", so the game cannot be installed from " +
+         location.hostname + ". The button opens the copy that works.");
+    return;
+  }
   if (!isSecureContext || !navigator.serviceWorker) {
     warn("This page cannot use a service worker. OPEN DIRECTLY runs the game without workers.");
   }
@@ -605,7 +559,10 @@ function wireButton(id, action) {
 }
 
 function wire() {
-  wireButton("go", function () { start(); });
+  wireButton("go", function () {
+    if (wrongHost) { location.href = CANONICAL; return; }
+    start();
+  });
   wireButton("direct", direct);
   wireButton("clr", function () { clear(); });
 }
