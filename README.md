@@ -1,6 +1,6 @@
-# Horizon single-file launcher
+# Minecraft: Browser single-file launcher
 
-`launch.svg` and `horizon-launch-sw.js` serve the single-file build of Horizon
+`launch.svg` and `horizon-launch-sw.js` serve the single-file build of the game
 from Google Drive through a service worker, adding the COOP/COEP headers the
 game's Web Workers need.
 
@@ -13,9 +13,13 @@ anyone-with-link, and the API key in `launch.svg` is restricted to the
 `cdn.jsdelivr.net` referrer: opened from another host the key is refused, which
 is why the jsDelivr URL above is the way in.
 
-- file id: `1j18Zu67rB9h-VXdWtGym7yBFswT_tV7S`
-- build: `8c6cef116639` (first 12 hex digits of the file's SHA-256)
-- size: 355,343,333 bytes
+- file id: `1Pi-9SLO6z0dl7qwl_N77Q0fc9aVt7KCY`
+- build: `ba419177fff3` (first 12 hex digits of the file's SHA-256)
+- size: 356,941,194 bytes
+
+This build samples a cell's centre as well as its four corners, so terrain finer
+than a coarse LOD cell — a knoll, a gully, a cliff edge — is drawn instead of
+merging into a smooth ramp.
 
 The launcher downloads the file once, keeps it in that origin's IndexedDB, and
 lets the worker serve it as `__horizon.html` with:
@@ -30,7 +34,7 @@ that copy must send CORS headers and allow range requests. Even then the page
 has to be opened from a host the key allows, or from jsDelivr with `?src=` naming
 a CORS-enabled copy.
 
-Rebuilding: `python3 web/package.py single` in the Horizon tree, upload the
+Rebuilding: `python3 web/package.py single` in the game's source tree, upload the
 result to Drive as anyone-with-link, then update `DRIVE_ID` in `launch.svg` and
 `BUILD` in `horizon-launch-sw.js` (both carry the build id, so a cached worker is
 replaced rather than reused), commit, and point the link at the new commit.
