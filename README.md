@@ -6,7 +6,7 @@ game's Web Workers need.
 
 Open the launcher **from jsDelivr**:
 
-<https://cdn.jsdelivr.net/gh/retrograde-sdk/horizon-single@298988611/launch.svg>
+<https://cdn.jsdelivr.net/gh/retrograde-sdk/horizon-single@d77bab77c/launch.svg>
 
 The game is not in this repository. It is shared from Google Drive as
 anyone-with-link, and the API key in `launch.svg` is restricted to the

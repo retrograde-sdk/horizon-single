@@ -101,7 +101,7 @@ var SW_URL = "horizon-launch-sw.js";
 var SW_BUILD = "56b3ee752040";
 // The key is restricted to this referrer, so any other host is refused. Say so
 // and send the player to the copy that works, instead of failing at 403.
-var CANONICAL = "https://cdn.jsdelivr.net/gh/retrograde-sdk/horizon-single@PIN/launch.svg";
+var CANONICAL = "https://cdn.jsdelivr.net/gh/retrograde-sdk/horizon-single@d77bab77c/launch.svg";
 var KEY_HOST = "cdn.jsdelivr.net";
 var wrongHost = !Q.get("src") && location.hostname !== KEY_HOST;
 var DB_NAME = "horizon-launcher";
